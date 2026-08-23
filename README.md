@@ -1,6 +1,6 @@
 # 평면도 가구 배치 도구
 
-평면도.jpg(84A형 아파트 실측 도면)의 mm 치수를 기반으로 재구성한, 브라우저에서 바로 쓰는 가구 배치 시뮬레이터입니다.
+84A형 아파트 실측 평면도의 mm 치수를 기반으로 재구성한, 브라우저에서 바로 쓰는 가구 배치 시뮬레이터입니다.
 
 ## 사용법
 - **온라인으로 열기**: GitHub Pages 링크로 바로 접속 (아래 참고)
@@ -12,12 +12,14 @@
 - 드래그로 이동, 모서리 핸들로 크기 조절, 회전 버튼(±90°)
 - 가구 선택 시 **상하좌우 각 내벽까지의 거리를 mm 단위 파란 화살표**로 실시간 표시 (원본 도면의 검정/회색/청색 치수선과 구분되는 색상)
 - "벽/방 편집" 모드에서 가구 배치용 방 경계를 직접 조정 가능
-- floorplan_84A.drawio를 캡처한 이미지를 참조 패널로 열어 비교 가능
+- 상단 **"📐 평면도" / "📷 가상 도면"** 버튼으로 참조 이미지를 열어볼 수 있음 — 둘 다 확대/축소와 원본 파일 저장(다운로드) 기능 포함
+  - 📐 평면도 = 실제 시공도면 사진(floorplan_84A.jpg)
+  - 📷 가상 도면 = floorplan_84A.drawio를 도구로 렌더링해 캡처한 이미지(floorplan_84A_realization.png)
 - 브라우저 localStorage 자동 저장, 배치도 PNG 내보내기
 
 ## 파일 구성
 - `index.html` — GitHub Pages 배포용 (furniture_planner.html과 동일)
-- `furniture_planner.html` — 로컬 사용용 원본 파일 (floorplan_84A.drawio를 base64로 내장해 파싱·렌더링)
-- `floorplan_84A.drawio` — 원본 벡터 평면도 소스 (draw.io/diagrams.net 형식). 이 파일을 열어 방 구조나 치수를 직접 수정한 뒤 도구 코드의 `DRAWIO_B64` 상수만 교체하면 반영됩니다.
-- `floorplan_84A_capture.png` — floorplan_84A.drawio를 도구로 렌더링해 캡처한 이미지 (참조 패널에 사용)
-- `평면도.jpg` — 최초 실측 참고용 원본 사진
+- `furniture_planner.html` — 로컬 사용용 원본 파일 (floorplan_84A.drawio와 두 참조 이미지를 base64로 내장)
+- `floorplan_84A.drawio` — 벡터 평면도 소스 (draw.io/diagrams.net 형식). 방 구조나 치수를 직접 수정한 뒤 도구 코드의 `DRAWIO_B64` 상수만 교체하면 반영됩니다.
+- `floorplan_84A.jpg` — 실제 시공도면 사진 원본 ("📐 평면도" 버튼에서 열림)
+- `floorplan_84A_realization.png` — floorplan_84A.drawio를 도구로 렌더링해 캡처한 이미지 ("📷 가상 도면" 버튼에서 열림)
