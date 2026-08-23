@@ -155,9 +155,11 @@
           <div><label class="field">가로 W (mm)</label><input type="number" id="fW" step="10"></div>
           <div><label class="field">세로 H (mm)</label><input type="number" id="fH" step="10"></div>
         </div>
-        <div id="circleDims" style="display:none;">
-          <label class="field">지름 (mm)</label><input type="number" id="fD" step="10">
+        <div id="circleDims" class="grid2" style="display:none;">
+          <div><label class="field">가로 지름 (mm)</label><input type="number" id="fDx" step="10"></div>
+          <div><label class="field">세로 지름 (mm)</label><input type="number" id="fDy" step="10"></div>
         </div>
+        <div class="hint" id="circleHint" style="display:none;">모서리 점을 드래그하면 굴곡도(가로/세로 비율)를 바꿔 타원으로 만들 수 있어요.</div>
         <label class="field">회전</label>
         <div class="grid3">
           <button id="rotL">⟲ -90°</button>
@@ -391,6 +393,7 @@ const RECT_PRESETS = [
   {name:"침대(SS)",    w:1100, h:2000},
   {name:"침대(Q)",     w:1500, h:2000},
   {name:"침대(K)",     w:1600, h:2000},
+  {name:"침대(LK)",    w:1600, h:2400},
   {name:"옷장",        w:1200, h:600},
   {name:"서랍장",      w:900,  h:450},
   {name:"책상",        w:1200, h:600},
@@ -448,7 +451,13 @@ function loadState(){
     if(!raw) return false;
     const d = JSON.parse(raw);
     if(d.rooms && d.rooms.length) state.rooms = d.rooms;
-    if(d.furniture) state.furniture = d.furniture;
+    if(d.furniture) state.furniture = d.furniture.map(f=>{
+      // migrate old single-diameter circles (d) to independent dx/dy (ellipse-capable)
+      if(f.type==="circle" && f.dx===undefined){
+        return Object.assign({}, f, {dx:f.d||600, dy:f.d||600});
+      }
+      return f;
+    });
     if(d.scale) state.scale = d.scale;
     return true;
   }catch(e){ return false; }
@@ -468,8 +477,8 @@ function rectCorners(x,y,w,h,rot,cx,cy){
 }
 function furnBBox(f){
   if(f.type==="circle"){
-    const r = f.d/2;
-    return {left:f.x-r, right:f.x+r, top:f.y-r, bottom:f.y+r, cx:f.x, cy:f.y};
+    const rx = f.dx/2, ry = f.dy/2;
+    return {left:f.x-rx, right:f.x+rx, top:f.y-ry, bottom:f.y+ry, cx:f.x, cy:f.y};
   }
   const corners = rectCorners(f.x - f.w/2, f.y - f.h/2, f.w, f.h, f.rot||0, f.x, f.y);
   const xs = corners.map(c=>c[0]), ys = corners.map(c=>c[1]);
@@ -762,7 +771,7 @@ function render(){
       gf.appendChild(grp);
     } else {
       const grp = el("g",{transform:`translate(${px(f.x)},${px(f.y)})`});
-      grp.appendChild(el("circle",{r:px(f.d/2), fill:f.color, class:"furn-shape"}));
+      grp.appendChild(el("ellipse",{rx:px(f.dx/2), ry:px(f.dy/2), fill:f.color, class:"furn-shape"}));
       const t = el("text",{x:0,y:0, class:"furn-label"});
       t.textContent = f.name;
       grp.appendChild(t);
@@ -790,8 +799,8 @@ function render(){
         rotHandle.addEventListener("pointerdown",(e)=>{ e.stopPropagation(); startFurnRotate(e,f); });
         furnLayer.appendChild(rotHandle);
       } else {
-        furnLayer.appendChild(el("circle",{cx:px(f.x),cy:px(f.y),r:px(f.d/2), class:"furn-outline"}));
-        const hx = f.x + f.d/2*Math.SQRT1_2, hy = f.y + f.d/2*Math.SQRT1_2;
+        furnLayer.appendChild(el("ellipse",{cx:px(f.x),cy:px(f.y),rx:px(f.dx/2),ry:px(f.dy/2), class:"furn-outline"}));
+        const hx = f.x + f.dx/2, hy = f.y + f.dy/2;
         const rh = el("circle",{cx:px(hx),cy:px(hy),r:7,class:"furn-handle"});
         rh.addEventListener("pointerdown",(e)=>{ e.stopPropagation(); startFurnResize(e,f); });
         furnLayer.appendChild(rh);
@@ -872,8 +881,9 @@ function startFurnResize(e, f){
   function move(ev){
     const p = svgPointToMm(ev.clientX, ev.clientY);
     if(f.type==="circle"){
-      const rr = Math.hypot(p.x-f.x, p.y-f.y);
-      f.d = Math.max(100, Math.round(rr*2/10)*10);
+      const dx0 = p.x-f.x, dy0 = p.y-f.y;
+      f.dx = Math.max(100, Math.round(Math.abs(dx0)*2/10)*10);
+      f.dy = Math.max(100, Math.round(Math.abs(dy0)*2/10)*10);
     } else {
       const rad = -(f.rot||0)*Math.PI/180;
       const dx0 = p.x-f.x, dy0 = p.y-f.y;
@@ -974,7 +984,7 @@ function updateSidePanels(){
   state.furniture.forEach(f=>{
     const item = document.createElement("div");
     item.className = "flist-item" + (state.selectedFurnId===f.id ? " sel":"");
-    const sizeTxt = f.type==="rect" ? `${f.w}×${f.h}` : `⌀${f.d}`;
+    const sizeTxt = f.type==="rect" ? `${f.w}×${f.h}` : (f.dx===f.dy ? `⌀${f.dx}` : `${f.dx}×${f.dy}(타원)`);
     item.innerHTML = `<span>${f.name} <span style="color:var(--sub)">(${sizeTxt})</span></span><span class="del">✕</span>`;
     item.addEventListener("click", (e)=>{
       if(e.target.classList.contains("del")){
@@ -996,12 +1006,14 @@ function updateSidePanels(){
     propsBox.classList.add("show"); noSel.style.display="none";
     document.getElementById("fName").value = f.name;
     document.getElementById("rectDims").style.display = f.type==="rect" ? "grid":"none";
-    document.getElementById("circleDims").style.display = f.type==="circle" ? "block":"none";
+    document.getElementById("circleDims").style.display = f.type==="circle" ? "grid":"none";
+    document.getElementById("circleHint").style.display = f.type==="circle" ? "block":"none";
     if(f.type==="rect"){
       document.getElementById("fW").value = f.w;
       document.getElementById("fH").value = f.h;
     } else {
-      document.getElementById("fD").value = f.d;
+      document.getElementById("fDx").value = f.dx;
+      document.getElementById("fDy").value = f.dy;
     }
     buildSwatches("furnSwatches", FURN_COLORS, (col)=>{ f.color=col; render(); updateSidePanels(); saveState(); }, f.color);
   } else {
@@ -1036,7 +1048,7 @@ document.getElementById("btnAddRect").addEventListener("click", ()=>{
 document.getElementById("btnAddCircle").addEventListener("click", ()=>{
   const p = CIRCLE_PRESETS[document.getElementById("presetCircle").value];
   const b = worldBounds();
-  const f = {id:uid("f_"), type:"circle", name:p.name, d:p.d,
+  const f = {id:uid("f_"), type:"circle", name:p.name, dx:p.d, dy:p.d,
     x: Math.round((b.w/2)/10)*10, y: Math.round((b.h/2)/10)*10, color: FURN_COLORS[1]};
   state.furniture.push(f);
   state.selectedFurnId = f.id;
@@ -1055,11 +1067,15 @@ document.getElementById("fH").addEventListener("input", (e)=>{
   const f = state.furniture.find(x=>x.id===state.selectedFurnId); if(!f) return;
   f.h = Math.max(50, parseFloat(e.target.value)||f.h); render();
 });
-document.getElementById("fD").addEventListener("input", (e)=>{
+document.getElementById("fDx").addEventListener("input", (e)=>{
   const f = state.furniture.find(x=>x.id===state.selectedFurnId); if(!f) return;
-  f.d = Math.max(50, parseFloat(e.target.value)||f.d); render();
+  f.dx = Math.max(50, parseFloat(e.target.value)||f.dx); render();
 });
-["fW","fH","fD"].forEach(id=>document.getElementById(id).addEventListener("change", saveState));
+document.getElementById("fDy").addEventListener("input", (e)=>{
+  const f = state.furniture.find(x=>x.id===state.selectedFurnId); if(!f) return;
+  f.dy = Math.max(50, parseFloat(e.target.value)||f.dy); render();
+});
+["fW","fH","fDx","fDy"].forEach(id=>document.getElementById(id).addEventListener("change", saveState));
 
 document.getElementById("rotL").addEventListener("click", ()=>{
   const f = state.furniture.find(x=>x.id===state.selectedFurnId); if(!f) return;
@@ -1080,6 +1096,15 @@ document.getElementById("btnDup").addEventListener("click", ()=>{
   render(); updateSidePanels(); saveState();
 });
 document.getElementById("btnDelFurn").addEventListener("click", ()=>{
+  state.furniture = state.furniture.filter(x=>x.id!==state.selectedFurnId);
+  state.selectedFurnId = null;
+  render(); updateSidePanels(); saveState();
+});
+window.addEventListener("keydown", (e)=>{
+  if(e.key!=="Delete") return;
+  const tag = (document.activeElement && document.activeElement.tagName || "").toLowerCase();
+  if(tag==="input" || tag==="textarea") return; // don't hijack Delete while editing a field
+  if(!state.selectedFurnId) return; // nothing selected: do nothing
   state.furniture = state.furniture.filter(x=>x.id!==state.selectedFurnId);
   state.selectedFurnId = null;
   render(); updateSidePanels(); saveState();
