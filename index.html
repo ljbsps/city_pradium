@@ -65,10 +65,7 @@
   #topbar .spacer{flex:1;}
   #zoomLabel{font-size:12px;color:var(--sub);min-width:44px;text-align:center;}
   svg#stage{display:block;cursor:default;user-select:none;}
-  .room-rect{stroke:#1b1e21;stroke-width:3;cursor:move;}
-  .room-rect.editSel{stroke:var(--accent);stroke-width:4;}
-  .room-label{fill:#2c2013;font-size:15px;font-weight:600;pointer-events:none;text-anchor:middle;dominant-baseline:middle;}
-  .room-handle{fill:#fff;stroke:var(--accent);stroke-width:2;cursor:nwse-resize;}
+  #canvasWrap.dimAddMode, #canvasWrap.dimAddMode svg#stage{cursor:crosshair;}
   .furn{cursor:grab;}
   .furn:active{cursor:grabbing;}
   .furn-shape{stroke:#3a2a17;stroke-width:2;}
@@ -81,7 +78,11 @@
   .dim-text{font-size:13px;font-weight:700;fill:#1a5fa8;text-anchor:middle;dominant-baseline:middle;}
   .dim-text-bg{fill:#fff;fill-opacity:.9;stroke:#2f7dd1;stroke-width:1;}
   .drawio-layer{pointer-events:none;}
-  .room-rect{stroke-dasharray:6 4;}
+  .customdim-line{stroke:#c0392b;stroke-width:2;}
+  .customdim-line.selected{stroke-width:3.5;}
+  .customdim-text{font-size:13px;font-weight:700;fill:#8a2f20;text-anchor:middle;dominant-baseline:middle;}
+  .customdim-text-bg{fill:#fff;fill-opacity:.9;stroke:#c0392b;stroke-width:1;}
+  .customdim-handle{fill:#c0392b;stroke:#fff;stroke-width:1.5;cursor:grab;}
   .imgref-panel{position:fixed;right:20px;bottom:20px;z-index:50;background:var(--panel);border:1px solid var(--line);
     border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.5);padding:10px;display:none;max-width:min(90vw,900px);}
   .imgref-panel.show{display:block;}
@@ -108,28 +109,17 @@
       <div class="row">
         <button id="btnRefImgOfficial">📐 평면도</button>
         <button id="btnRefImg">📷 가상 도면</button>
-        <button id="btnWallEdit">🧱 벽/방 편집</button>
       </div>
       <div class="hint">floorplan_84A.drawio 원본을 그대로 벡터로 그려서 벽·문·붙박이 가구·모든 실측 치수선을 원본과 동일하게 표시합니다. 파란 화살표/치수는 배치한 가구의 실시간 거리이며, 검정·회색·청색 치수는 원본 도면 그대로입니다. "평면도"는 실제 시공도면 사진, "가상 도면"은 이를 벡터로 재현한 캡처입니다.</div>
     </div>
 
-    <div class="side-section" id="roomEditSection" style="display:none;">
-      <h3>방 편집</h3>
+    <div class="side-section">
+      <h3>치수 표시</h3>
       <div class="row">
-        <button id="btnAddRoom">+ 방 추가</button>
-        <button id="btnDelRoom" class="danger">선택한 방 삭제</button>
+        <button id="btnDimAdd">📏 치수 추가</button>
+        <button id="btnDimClear" class="danger">모두 삭제</button>
       </div>
-      <div id="roomProps" style="display:none;">
-        <label class="field">방 이름</label>
-        <input type="text" id="roomName">
-        <div class="grid2">
-          <div><label class="field">가로 W (mm)</label><input type="number" id="roomW" step="10"></div>
-          <div><label class="field">세로 H (mm)</label><input type="number" id="roomH" step="10"></div>
-        </div>
-        <label class="field">색상</label>
-        <div class="swatches" id="roomSwatches"></div>
-      </div>
-      <div class="hint">방 몸통을 드래그하면 이동, 우측 하단 파란 점을 드래그하면 크기 조절됩니다.</div>
+      <div class="hint">"치수 추가"를 켠 뒤 도면 위 두 지점을 드래그하면 그 사이 직선거리를 mm로 표시하는 빨간 치수선이 생깁니다. 계속 여러 개 추가할 수 있고, 다시 누르면 꺼져요. 치수선을 클릭해 선택한 뒤 Delete 키로 하나씩 지울 수 있어요.</div>
     </div>
 
     <div class="side-section">
@@ -213,7 +203,7 @@
       <button id="zoomIn">＋</button>
       <button id="zoomFit">전체보기</button>
       <div class="spacer"></div>
-      <span class="badge" id="wallEditBadge" style="display:none;">벽 편집 모드</span>
+      <span class="badge" id="dimAddBadge" style="display:none;">치수 추가 모드 (Esc로 종료)</span>
     </div>
     <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
   </div>
@@ -390,11 +380,11 @@ function defaultRooms(){
 }
 
 const RECT_PRESETS = [
+  {name:"침대(TDLR)",  w:1000, h:1600},
   {name:"침대(SS)",    w:1100, h:2000},
   {name:"침대(Q)",     w:1500, h:2000},
   {name:"침대(K)",     w:1600, h:2000},
   {name:"침대(LK)",    w:1600, h:2400},
-  {name:"침대(TDLR)",  w:1000, h:1600},
   {name:"옷장",        w:1200, h:600},
   {name:"서랍장",      w:900,  h:450},
   {name:"책상",        w:1200, h:600},
@@ -420,12 +410,14 @@ const CIRCLE_PRESETS = [
 ];
 
 let state = {
-  rooms: defaultRooms(),
+  rooms: defaultRooms(),          // invisible boundaries used for furniture placement/distance math only
   furniture: [], // {id,type:'rect'|'circle',name,x,y,w,h(or d),rot,color}
+  customDims: [], // user-added measurement lines: {id,x1,y1,x2,y2}
   scale: 0.10,   // px per mm
-  wallEditMode: false,
-  selectedRoomId: null,
   selectedFurnId: null,
+  selectedDimId: null,
+  dimAddMode: false,
+  dimDraft: null, // {x1,y1,x2,y2} while actively dragging a new custom dimension
   showGrid: false,
   dimSel: true,
   dimAll: false,
@@ -441,7 +433,7 @@ function uid(prefix){ return prefix + Math.random().toString(36).slice(2,9); }
 function saveState(){
   try{
     localStorage.setItem(LS_KEY, JSON.stringify({
-      rooms: state.rooms, furniture: state.furniture, scale: state.scale
+      rooms: state.rooms, furniture: state.furniture, customDims: state.customDims, scale: state.scale
     }));
     document.getElementById("saveStatus").textContent = "저장됨 · " + new Date().toLocaleTimeString("ko-KR");
   }catch(e){ console.warn("save failed", e); }
@@ -459,6 +451,7 @@ function loadState(){
       }
       return f;
     });
+    if(d.customDims) state.customDims = d.customDims;
     if(d.scale) state.scale = d.scale;
     return true;
   }catch(e){ return false; }
@@ -731,6 +724,13 @@ function render(){
   defs.appendChild(el("marker", {id:"arrowEnd", viewBox:"0 0 10 10", refX:"9", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto"}, [
     el("path", {d:"M0,0 L10,5 L0,10 z", fill:markerColors.accent})
   ]));
+  // custom user-added measurement markers
+  defs.appendChild(el("marker", {id:"cdmStart", viewBox:"0 0 10 10", refX:"1", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto-start-reverse"}, [
+    el("path", {d:"M0,0 L10,5 L0,10 z", fill:"#c0392b"})
+  ]));
+  defs.appendChild(el("marker", {id:"cdmEnd", viewBox:"0 0 10 10", refX:"9", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto"}, [
+    el("path", {d:"M0,0 L10,5 L0,10 z", fill:"#c0392b"})
+  ]));
   stage.appendChild(defs);
 
   // grid (kept subtle, behind everything)
@@ -750,36 +750,8 @@ function render(){
   renderDrawioBackdrop(stage);
   // 2) faithful drawio dimension arrows (always shown, exactly as in the original)
   renderDrawioDims(stage);
-
-  // 3) invisible interactive room layer (only visible in wall-edit mode)
-  const roomsLayer = el("g",{id:"roomsLayer"});
-  state.rooms.forEach(r=>{
-    const gr = el("g",{"data-room":r.id});
-    const rect = el("rect",{
-      x:px(r.x), y:px(r.y), width:px(r.w), height:px(r.h),
-      fill: state.wallEditMode ? "rgba(79,163,255,0.10)" : "transparent",
-      class: "room-rect" + (state.wallEditMode && state.selectedRoomId===r.id ? " editSel":"")
-    });
-    if(state.wallEditMode){
-      rect.style.stroke = state.selectedRoomId===r.id ? "#4fa3ff" : "#7fb8ff";
-      rect.style.strokeWidth = state.selectedRoomId===r.id ? "3" : "1.5";
-      rect.style.cursor = "move";
-      rect.addEventListener("pointerdown", (e)=>startRoomDrag(e, r, "move"));
-      gr.appendChild(rect);
-      const label = el("text",{x:px(r.x+r.w/2), y:px(r.y+r.h/2), class:"room-label"});
-      label.textContent = r.name + `  (${Math.round(r.w)}×${Math.round(r.h)})`;
-      gr.appendChild(label);
-      const handle = el("circle",{ cx:px(r.x+r.w), cy:px(r.y+r.h), r:7, class:"room-handle" });
-      handle.addEventListener("pointerdown",(e)=>{ e.stopPropagation(); startRoomDrag(e, r, "resize"); });
-      gr.appendChild(handle);
-    } else {
-      rect.style.stroke = "none";
-      rect.style.pointerEvents = "none";
-      gr.appendChild(rect);
-    }
-    roomsLayer.appendChild(gr);
-  });
-  stage.appendChild(roomsLayer);
+  // note: state.rooms is purely invisible data used for furniture placement/distance math
+  // (derived from the drawio geometry) — it is never drawn.
 
   // 4) dynamic furniture-to-wall dimension arrows layer
   const dimLayer = el("g",{id:"dimLayer"});
@@ -848,7 +820,52 @@ function render(){
   });
   toDraw.forEach(f=>drawDims(dimLayer, f));
 
+  // 6) user-added custom measurement lines (mark-anywhere "치수 추가")
+  renderCustomDims(stage);
+
   document.getElementById("zoomLabel").textContent = Math.round(state.scale/0.001) /10 + "%";
+}
+
+function renderCustomDims(parent){
+  const layer = el("g",{id:"customDimLayer"});
+  function drawLine(x1,y1,x2,y2, id, selected){
+    const g = el("g",{});
+    const dist = Math.round(Math.hypot(x2-x1, y2-y1));
+    const line = el("line",{
+      x1:px(x1),y1:px(y1),x2:px(x2),y2:px(y2),
+      class:"customdim-line"+(selected?" selected":""),
+      "marker-start":"url(#cdmStart)", "marker-end":"url(#cdmEnd)"
+    });
+    if(id){
+      line.style.cursor = "pointer";
+      line.addEventListener("pointerdown",(e)=>{
+        e.stopPropagation();
+        state.selectedDimId = id; state.selectedFurnId = null;
+        render(); updateSidePanels();
+      });
+    }
+    g.appendChild(line);
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    const label = dist+"mm";
+    const bgW = Math.max(38, label.length*8+10);
+    g.appendChild(el("rect",{x:px(mx)-bgW/2,y:px(my)-11,width:bgW,height:22,rx:5,class:"customdim-text-bg"}));
+    const t = el("text",{x:px(mx),y:px(my),class:"customdim-text"}); t.textContent=label; g.appendChild(t);
+    if(selected){
+      [[x1,y1],[x2,y2]].forEach(([hx,hy],i)=>{
+        const h = el("circle",{cx:px(hx),cy:px(hy),r:7,class:"customdim-handle"});
+        h.addEventListener("pointerdown",(e)=>{ e.stopPropagation(); startDimHandleDrag(e, id, i); });
+        g.appendChild(h);
+      });
+    }
+    return g;
+  }
+  state.customDims.forEach(d=>{
+    layer.appendChild(drawLine(d.x1,d.y1,d.x2,d.y2, d.id, state.selectedDimId===d.id));
+  });
+  if(state.dimDraft){
+    layer.appendChild(drawLine(state.dimDraft.x1,state.dimDraft.y1,state.dimDraft.x2,state.dimDraft.y2, null, false));
+  }
+  parent.appendChild(layer);
 }
 
 function dimText(mm){ return Math.round(mm) + "mm"; }
@@ -890,7 +907,7 @@ function svgPointToMm(clientX, clientY){
 
 function startFurnDrag(e, f){
   e.stopPropagation();
-  state.selectedFurnId = f.id; state.selectedRoomId=null;
+  state.selectedFurnId = f.id; state.selectedDimId=null;
   render(); updateSidePanels();
   const start = svgPointToMm(e.clientX, e.clientY);
   const orig = {x:f.x, y:f.y};
@@ -958,23 +975,34 @@ function startFurnRotate(e, f){
   window.addEventListener("pointerup", up);
 }
 
-function startRoomDrag(e, r, mode){
-  e.stopPropagation();
-  state.selectedRoomId = r.id; state.selectedFurnId=null;
-  render(); updateSidePanels();
-  const start = svgPointToMm(e.clientX, e.clientY);
-  const orig = {x:r.x, y:r.y, w:r.w, h:r.h};
+/* ---- custom "치수 추가" measurement lines ---- */
+function startDimDraw(e){
+  const startPt = svgPointToMm(e.clientX, e.clientY);
   function move(ev){
     const p = svgPointToMm(ev.clientX, ev.clientY);
-    const dx = p.x-start.x, dy = p.y-start.y;
-    if(mode==="move"){
-      r.x = Math.round((orig.x+dx)/10)*10;
-      r.y = Math.round((orig.y+dy)/10)*10;
-    } else {
-      r.w = Math.max(300, Math.round((orig.w+dx)/10)*10);
-      r.h = Math.max(300, Math.round((orig.h+dy)/10)*10);
+    state.dimDraft = {x1:startPt.x, y1:startPt.y, x2:p.x, y2:p.y};
+    render();
+  }
+  function up(ev){
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    const p = svgPointToMm(ev.clientX, ev.clientY);
+    state.dimDraft = null;
+    if(Math.hypot(p.x-startPt.x, p.y-startPt.y) >= 30){
+      state.customDims.push({id:uid("d_"), x1:startPt.x, y1:startPt.y, x2:p.x, y2:p.y});
+      saveState();
     }
     render(); updateSidePanels();
+  }
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+function startDimHandleDrag(e, dimId, endIndex){
+  const d = state.customDims.find(x=>x.id===dimId); if(!d) return;
+  function move(ev){
+    const p = svgPointToMm(ev.clientX, ev.clientY);
+    if(endIndex===0){ d.x1=p.x; d.y1=p.y; } else { d.x2=p.x; d.y2=p.y; }
+    render();
   }
   function up(){
     window.removeEventListener("pointermove", move);
@@ -1031,7 +1059,7 @@ function updateSidePanels(){
         render(); updateSidePanels(); saveState();
         return;
       }
-      state.selectedFurnId = f.id; state.selectedRoomId=null;
+      state.selectedFurnId = f.id; state.selectedDimId=null;
       render(); updateSidePanels();
     });
     listEl.appendChild(item);
@@ -1058,17 +1086,6 @@ function updateSidePanels(){
     propsBox.classList.remove("show"); noSel.style.display="block";
   }
 
-  const r = state.rooms.find(x=>x.id===state.selectedRoomId);
-  const roomProps = document.getElementById("roomProps");
-  if(r && state.wallEditMode){
-    roomProps.style.display="block";
-    document.getElementById("roomName").value = r.name;
-    document.getElementById("roomW").value = Math.round(r.w);
-    document.getElementById("roomH").value = Math.round(r.h);
-    buildSwatches("roomSwatches", ROOM_COLORS, (col)=>{ r.color=col; render(); saveState(); }, r.color);
-  } else {
-    roomProps.style.display="none";
-  }
 }
 
 /* ============================================================
@@ -1139,50 +1156,35 @@ document.getElementById("btnDelFurn").addEventListener("click", ()=>{
   render(); updateSidePanels(); saveState();
 });
 window.addEventListener("keydown", (e)=>{
-  if(e.key!=="Delete") return;
   const tag = (document.activeElement && document.activeElement.tagName || "").toLowerCase();
-  if(tag==="input" || tag==="textarea") return; // don't hijack Delete while editing a field
-  if(!state.selectedFurnId) return; // nothing selected: do nothing
-  state.furniture = state.furniture.filter(x=>x.id!==state.selectedFurnId);
-  state.selectedFurnId = null;
-  render(); updateSidePanels(); saveState();
+  if(tag==="input" || tag==="textarea") return; // don't hijack keys while editing a field
+  if(e.key==="Delete"){
+    if(state.selectedFurnId){
+      state.furniture = state.furniture.filter(x=>x.id!==state.selectedFurnId);
+      state.selectedFurnId = null;
+      render(); updateSidePanels(); saveState();
+    } else if(state.selectedDimId){
+      state.customDims = state.customDims.filter(x=>x.id!==state.selectedDimId);
+      state.selectedDimId = null;
+      render(); updateSidePanels(); saveState();
+    } // nothing selected: do nothing
+  } else if(e.key==="Escape" && state.dimAddMode){
+    document.getElementById("btnDimAdd").click();
+  }
 });
 
-document.getElementById("btnWallEdit").addEventListener("click", ()=>{
-  state.wallEditMode = !state.wallEditMode;
-  document.getElementById("btnWallEdit").classList.toggle("active", state.wallEditMode);
-  document.getElementById("roomEditSection").style.display = state.wallEditMode ? "block":"none";
-  document.getElementById("wallEditBadge").style.display = state.wallEditMode ? "inline-block":"none";
-  if(!state.wallEditMode) state.selectedRoomId=null;
-  render(); updateSidePanels();
+document.getElementById("btnDimAdd").addEventListener("click", ()=>{
+  state.dimAddMode = !state.dimAddMode;
+  document.getElementById("btnDimAdd").classList.toggle("active", state.dimAddMode);
+  document.getElementById("dimAddBadge").style.display = state.dimAddMode ? "inline-block":"none";
+  document.getElementById("canvasWrap").classList.toggle("dimAddMode", state.dimAddMode);
 });
-document.getElementById("btnAddRoom").addEventListener("click", ()=>{
-  const b = worldBounds();
-  const r = {id:uid("r_"), name:"새 방", x:Math.round(b.w/4/10)*10, y:Math.round(b.h/4/10)*10,
-    w:2000, h:2000, color:ROOM_COLORS[2]};
-  state.rooms.push(r); state.selectedRoomId=r.id;
+document.getElementById("btnDimClear").addEventListener("click", ()=>{
+  if(!state.customDims.length) return;
+  if(!confirm("추가한 치수선을 모두 삭제할까요?")) return;
+  state.customDims = []; state.selectedDimId = null;
   render(); updateSidePanels(); saveState();
 });
-document.getElementById("btnDelRoom").addEventListener("click", ()=>{
-  if(!state.selectedRoomId) return;
-  if(state.rooms.length<=1) { alert("최소 한 개의 방은 있어야 합니다."); return; }
-  state.rooms = state.rooms.filter(x=>x.id!==state.selectedRoomId);
-  state.selectedRoomId = null;
-  render(); updateSidePanels(); saveState();
-});
-document.getElementById("roomName").addEventListener("input",(e)=>{
-  const r = state.rooms.find(x=>x.id===state.selectedRoomId); if(!r) return;
-  r.name = e.target.value; render();
-});
-document.getElementById("roomW").addEventListener("input",(e)=>{
-  const r = state.rooms.find(x=>x.id===state.selectedRoomId); if(!r) return;
-  r.w = Math.max(300, parseFloat(e.target.value)||r.w); render();
-});
-document.getElementById("roomH").addEventListener("input",(e)=>{
-  const r = state.rooms.find(x=>x.id===state.selectedRoomId); if(!r) return;
-  r.h = Math.max(300, parseFloat(e.target.value)||r.h); render();
-});
-["roomName","roomW","roomH"].forEach(id=>document.getElementById(id).addEventListener("change", saveState));
 
 document.getElementById("chkDimSel").addEventListener("change",(e)=>{ state.dimSel=e.target.checked; render(); });
 document.getElementById("chkDimAll").addEventListener("change",(e)=>{ state.dimAll=e.target.checked; render(); });
@@ -1241,16 +1243,17 @@ document.querySelectorAll(".irBtn[data-act]").forEach(btn=>{
 
 document.getElementById("btnSave").addEventListener("click", saveState);
 document.getElementById("btnReset").addEventListener("click", ()=>{
-  if(!confirm("모든 방 배치와 가구를 기본값으로 초기화할까요?")) return;
+  if(!confirm("모든 방 배치·가구·치수선을 기본값으로 초기화할까요?")) return;
   state.rooms = defaultRooms();
   state.furniture = [];
-  state.selectedFurnId=null; state.selectedRoomId=null;
+  state.customDims = [];
+  state.selectedFurnId=null; state.selectedDimId=null;
   render(); updateSidePanels(); saveState();
 });
 
 document.getElementById("btnExportPng").addEventListener("click", ()=>{
-  const wasSel = state.selectedFurnId, wasRoom=state.selectedRoomId, wasWallEdit=state.wallEditMode;
-  state.selectedFurnId=null; state.selectedRoomId=null; state.wallEditMode=false;
+  const wasSel = state.selectedFurnId, wasDim = state.selectedDimId;
+  state.selectedFurnId=null; state.selectedDimId=null;
   render();
   const svgData = new XMLSerializer().serializeToString(stage);
   const svgBlob = new Blob([svgData], {type:"image/svg+xml;charset=utf-8"});
@@ -1272,7 +1275,7 @@ document.getElementById("btnExportPng").addEventListener("click", ()=>{
       a.download = "가구배치도.png";
       a.click();
     });
-    state.selectedFurnId=wasSel; state.selectedRoomId=wasRoom; state.wallEditMode=wasWallEdit;
+    state.selectedFurnId=wasSel; state.selectedDimId=wasDim;
     render(); updateSidePanels();
   };
   img.src = url;
@@ -1300,7 +1303,8 @@ document.getElementById("canvasWrap").addEventListener("wheel",(e)=>{
   const wrap = document.getElementById("canvasWrap");
   let ps = null;
   stage.addEventListener("pointerdown",(e)=>{
-    if(e.target!==stage) return; // let furniture/room drag handlers own their own elements
+    if(e.target!==stage) return; // let furniture/dimension drag handlers own their own elements
+    if(state.dimAddMode){ startDimDraw(e); return; }
     ps = {x:e.clientX, y:e.clientY, sl:wrap.scrollLeft, st:wrap.scrollTop, moved:false};
   });
   window.addEventListener("pointermove",(e)=>{
@@ -1315,7 +1319,7 @@ document.getElementById("canvasWrap").addEventListener("wheel",(e)=>{
   });
   window.addEventListener("pointerup",()=>{
     if(!ps) return;
-    if(!ps.moved){ state.selectedFurnId=null; state.selectedRoomId=null; render(); updateSidePanels(); }
+    if(!ps.moved){ state.selectedFurnId=null; state.selectedDimId=null; render(); updateSidePanels(); }
     wrap.classList.remove("panning");
     ps = null;
   });
