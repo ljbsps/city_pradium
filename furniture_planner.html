@@ -55,8 +55,8 @@
 
   /* ---------- Canvas area ---------- */
   #canvasWrap{flex:1;position:relative;overflow:auto;cursor:grab;background:
-      linear-gradient(0deg, transparent 24px, rgba(0,0,0,.06) 25px),
-      linear-gradient(90deg, transparent 24px, rgba(0,0,0,.06) 25px), #82868c;
+      linear-gradient(0deg, transparent 24px, rgba(0,0,0,.05) 25px),
+      linear-gradient(90deg, transparent 24px, rgba(0,0,0,.05) 25px), #FFFFF6;
     background-size:25px 25px;}
   #canvasWrap.panning{cursor:grabbing;}
   #topbar{position:sticky;top:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:10px;
@@ -394,6 +394,7 @@ const RECT_PRESETS = [
   {name:"침대(Q)",     w:1500, h:2000},
   {name:"침대(K)",     w:1600, h:2000},
   {name:"침대(LK)",    w:1600, h:2400},
+  {name:"침대(TDLR)",  w:1000, h:1600},
   {name:"옷장",        w:1200, h:600},
   {name:"서랍장",      w:900,  h:450},
   {name:"책상",        w:1200, h:600},
@@ -507,6 +508,37 @@ function computeDims(f){
     right: Math.max(0, (room.x+room.w) - bb.right),
     bb, room
   };
+}
+
+/* ---- outer-wall containment: furniture may cross interior walls freely
+   (moving between rooms) but must stay within the union of all rooms
+   (the building's own exterior wall). ---- */
+function isPointInHouse(x,y){
+  for(const r of state.rooms){
+    if(x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return true;
+  }
+  return false;
+}
+function furnShapePoints(f, cx, cy){
+  if(f.type==="circle"){
+    const rx=f.dx/2, ry=f.dy/2;
+    const pts=[[cx,cy]];
+    for(let i=0;i<8;i++){
+      const a=i*Math.PI/4;
+      pts.push([cx+Math.cos(a)*rx, cy+Math.sin(a)*ry]);
+    }
+    return pts;
+  }
+  const corners = rectCorners(cx-f.w/2, cy-f.h/2, f.w, f.h, f.rot||0, cx, cy);
+  return [[cx,cy]].concat(corners);
+}
+function isFurnPlacementValid(f, cx, cy){
+  return furnShapePoints(f, cx, cy).every(([x,y])=>isPointInHouse(x,y));
+}
+function biggestRoomCenter(){
+  let best=null, bestArea=-1;
+  state.rooms.forEach(r=>{ const a=r.w*r.h; if(a>bestArea){ bestArea=a; best=r; } });
+  return best ? {x:best.x+best.w/2, y:best.y+best.h/2} : {x:3000,y:3000};
 }
 
 /* ============================================================
@@ -864,8 +896,14 @@ function startFurnDrag(e, f){
   const orig = {x:f.x, y:f.y};
   function move(ev){
     const p = svgPointToMm(ev.clientX, ev.clientY);
-    f.x = orig.x + (p.x-start.x);
-    f.y = orig.y + (p.y-start.y);
+    const nx = orig.x + (p.x-start.x);
+    const ny = orig.y + (p.y-start.y);
+    // stay inside the building's outer wall; sliding along it if only one axis is blocked.
+    // interior walls between rooms are never a barrier, since isFurnPlacementValid accepts
+    // any point covered by ANY room.
+    if(isFurnPlacementValid(f, nx, ny)){ f.x = nx; f.y = ny; }
+    else if(isFurnPlacementValid(f, nx, f.y)){ f.x = nx; }
+    else if(isFurnPlacementValid(f, f.x, ny)){ f.y = ny; }
     render();
   }
   function up(){
@@ -1038,18 +1076,18 @@ function updateSidePanels(){
    ============================================================ */
 document.getElementById("btnAddRect").addEventListener("click", ()=>{
   const p = RECT_PRESETS[document.getElementById("presetRect").value];
-  const b = worldBounds();
+  const c = biggestRoomCenter();
   const f = {id:uid("f_"), type:"rect", name:p.name, w:p.w, h:p.h, rot:0,
-    x: Math.round((b.w/2)/10)*10, y: Math.round((b.h/2)/10)*10, color: FURN_COLORS[0]};
+    x: Math.round(c.x/10)*10, y: Math.round(c.y/10)*10, color: FURN_COLORS[0]};
   state.furniture.push(f);
   state.selectedFurnId = f.id;
   render(); updateSidePanels(); saveState();
 });
 document.getElementById("btnAddCircle").addEventListener("click", ()=>{
   const p = CIRCLE_PRESETS[document.getElementById("presetCircle").value];
-  const b = worldBounds();
+  const c = biggestRoomCenter();
   const f = {id:uid("f_"), type:"circle", name:p.name, dx:p.d, dy:p.d,
-    x: Math.round((b.w/2)/10)*10, y: Math.round((b.h/2)/10)*10, color: FURN_COLORS[1]};
+    x: Math.round(c.x/10)*10, y: Math.round(c.y/10)*10, color: FURN_COLORS[1]};
   state.furniture.push(f);
   state.selectedFurnId = f.id;
   render(); updateSidePanels(); saveState();
