@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" agent="Claude">
   <diagram name="84A 평면도" id="fp84a16">
-    <mxGraphModel dx="2020" dy="1837" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1500" math="0" shadow="0">
+    <mxGraphModel dx="1515" dy="1378" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1500" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -297,7 +297,7 @@
         </mxCell>
         <mxCell id="t1" edge="1" parent="1" style="html=1;endArrow=classic;startArrow=classic;endFill=1;startFill=1;labelBackgroundColor=#ffffff;strokeWidth=1.4;fontSize=11;strokeColor=#9a9a9a;fontColor=#787878;horizontal=0;" value="1990">
           <mxGeometry relative="1" as="geometry">
-            <mxPoint x="1420" y="200" as="sourcePoint" />
+            <mxPoint x="1420" y="280" as="sourcePoint" />
             <mxPoint x="1420" y="399" as="targetPoint" />
           </mxGeometry>
         </mxCell>
