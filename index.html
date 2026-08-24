@@ -433,8 +433,12 @@ function uid(prefix){ return prefix + Math.random().toString(36).slice(2,9); }
    ============================================================ */
 function saveState(){
   try{
+    // state.rooms is intentionally NOT persisted — it's always re-derived
+    // fresh from the embedded drawio (defaultRooms()) on load, so a room
+    // resize in the drawio takes effect immediately instead of being
+    // shadowed by a stale copy saved before the resize.
     localStorage.setItem(LS_KEY, JSON.stringify({
-      rooms: state.rooms, furniture: state.furniture, customDims: state.customDims, scale: state.scale
+      furniture: state.furniture, customDims: state.customDims, scale: state.scale
     }));
     document.getElementById("saveStatus").textContent = "저장됨 · " + new Date().toLocaleTimeString("ko-KR");
   }catch(e){ console.warn("save failed", e); }
@@ -444,7 +448,6 @@ function loadState(){
     const raw = localStorage.getItem(LS_KEY);
     if(!raw) return false;
     const d = JSON.parse(raw);
-    if(d.rooms && d.rooms.length) state.rooms = d.rooms;
     if(d.furniture) state.furniture = d.furniture.map(f=>{
       // migrate old single-diameter circles (d) to independent dx/dy (ellipse-capable)
       if(f.type==="circle" && f.dx===undefined){
@@ -528,6 +531,20 @@ function furnShapePoints(f, cx, cy){
 }
 function isFurnPlacementValid(f, cx, cy){
   return furnShapePoints(f, cx, cy).every(([x,y])=>isPointInHouse(x,y));
+}
+// Furthest point along the straight segment (ox,oy)->(tx,ty) that's still a
+// valid placement, found by bisection (~1e-6 of the segment after 20
+// steps — comfortably sub-millimeter). Used so dragging furniture up to a
+// wall lands flush against it instead of stopping a whole mouse-step short.
+function clampedPoint(f, ox, oy, tx, ty){
+  if(isFurnPlacementValid(f, tx, ty)) return {x:tx, y:ty};
+  let lo=0, hi=1;
+  for(let i=0;i<20;i++){
+    const mid=(lo+hi)/2;
+    const mx=ox+(tx-ox)*mid, my=oy+(ty-oy)*mid;
+    if(isFurnPlacementValid(f,mx,my)) lo=mid; else hi=mid;
+  }
+  return {x:ox+(tx-ox)*lo, y:oy+(ty-oy)*lo};
 }
 function biggestRoomCenter(){
   let best=null, bestArea=-1;
@@ -634,12 +651,19 @@ function doorSymbolPath(x,y,w,h,st,cellId){
     const a = ox*oy;
     if(a > bestArea){ bestArea = a; primary = r; }
   });
+  const SNAP = 300; // if the box's edge is already within this many mm of the
+                     // room's own edge, use the room's exact coordinate so the
+                     // hinge sits flush on the visible wall instead of a few
+                     // hundred mm into open floor (the door box isn't always
+                     // drawn perfectly flush with the room it's cut into).
   let hx,hy, wallDX=0,wallDY=0, openDX=0,openDY=0;
   if(primary && (dir==="north" || dir==="south")){
     const distTop = Math.abs(y - primary.y);
     const distBottom = Math.abs((y+h) - (primary.y+primary.h));
     const top = distTop <= distBottom;
     hy = top ? y : y+h;
+    if(top && distTop<SNAP) hy = primary.y;
+    if(!top && distBottom<SNAP) hy = primary.y+primary.h;
     hx = flipH ? x+w : x;
     wallDX = (hx===x) ? 1 : -1; wallDY = 0;
     openDY = top ? 1 : -1; openDX = 0;
@@ -648,6 +672,8 @@ function doorSymbolPath(x,y,w,h,st,cellId){
     const distRight = Math.abs((x+w) - (primary.x+primary.w));
     const left = distLeft <= distRight;
     hx = left ? x : x+w;
+    if(left && distLeft<SNAP) hx = primary.x;
+    if(!left && distRight<SNAP) hx = primary.x+primary.w;
     hy = flipV ? y+h : y;
     wallDY = (hy===y) ? 1 : -1; wallDX = 0;
     openDX = left ? 1 : -1; openDY = 0;
@@ -978,12 +1004,19 @@ function startFurnDrag(e, f){
     const p = svgPointToMm(ev.clientX, ev.clientY);
     const nx = orig.x + (p.x-start.x);
     const ny = orig.y + (p.y-start.y);
-    // stay inside the building's outer wall; sliding along it if only one axis is blocked.
-    // interior walls between rooms are never a barrier, since isFurnPlacementValid accepts
-    // any point covered by ANY room.
-    if(isFurnPlacementValid(f, nx, ny)){ f.x = nx; f.y = ny; }
-    else if(isFurnPlacementValid(f, nx, f.y)){ f.x = nx; }
-    else if(isFurnPlacementValid(f, f.x, ny)){ f.y = ny; }
+    // Stay inside the building's outer wall; slide along it if only one axis
+    // is blocked. Interior walls between rooms are never a barrier, since
+    // isFurnPlacementValid accepts any point covered by ANY room. Each
+    // candidate is bisected down to the exact wall so furniture ends up
+    // flush (~0mm) instead of stopping a whole mouse-step short of it.
+    const full  = clampedPoint(f, f.x, f.y, nx, ny);
+    const xOnly = clampedPoint(f, f.x, f.y, nx, f.y);
+    const yOnly = clampedPoint(f, f.x, f.y, f.x, ny);
+    const dist = (pt)=>Math.hypot(pt.x-f.x, pt.y-f.y);
+    let best = full;
+    if(dist(xOnly) > dist(best)) best = xOnly;
+    if(dist(yOnly) > dist(best)) best = yOnly;
+    f.x = best.x; f.y = best.y;
     render();
   }
   function up(){
