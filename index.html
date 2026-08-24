@@ -564,23 +564,71 @@ function worldBounds(){
    dimension arrow from floorplan_84A.drawio, in the file's own
    drawing order, at the current mm→px scale.
    ============================================================ */
-function doorSymbolPath(x,y,w,h,st){
-  const dir = st.direction || "north";
-  const flipH = st.flipH==="1";
-  const flipV = st.flipV==="1";
+function doorSymbolPath(x,y,w,h,st,cellId){
   const s = Math.min(w,h);
-  let hx,hy, wallDX=0,wallDY=0, openDX=0,openDY=0;
-  if(dir==="north" || dir==="south"){
+  // Confirmed correct by eye already (before the geometric wall-detection
+  // below existed) — keep their exact prior rendering rather than risk a
+  // visually-plausible-but-different alternative for an ambiguous corner.
+  if(cellId==="dr6" || cellId==="1sFaYbwFeZKre7695jQ8-9"){
+    const dir = st.direction || "north";
+    const flipH = st.flipH==="1";
+    let hx,hy, wallDX=0,wallDY=0, openDX=0,openDY=0;
     hy = (dir==="south") ? y : y+h;
     hx = flipH ? x+w : x;
     wallDX = (hx===x) ? 1 : -1; wallDY = 0;
     openDY = (dir==="south") ? 1 : -1; openDX = 0;
-  } else {
-    hx = (dir==="east") ? x : x+w;
-    hy = flipV ? y+h : y;
-    wallDY = (hy===y) ? 1 : -1; wallDX = 0;
-    openDX = (dir==="east") ? 1 : -1; openDY = 0;
+    return buildDoorGroup(x,y,w,h,s,hx,hy,wallDX,wallDY,openDX,openDY);
   }
+  // Determine which side of the door box is "the wall" from the actual room
+  // geometry (which room the box mostly overlaps, and which edge pokes out
+  // past that room's own boundary toward the neighboring wall/room). The
+  // drawio's own direction/flipH/flipV attributes on these door cells turned
+  // out to be unreliable/inconsistent, so wall side is derived geometrically
+  // and only falls back to those attributes when the box sits fully inside
+  // one room with no clear neighboring edge.
+  let wallSide = null, primary = null, bestArea = -1;
+  (state.rooms||[]).forEach(r=>{
+    const ox = Math.max(0, Math.min(x+w, r.x+r.w) - Math.max(x, r.x));
+    const oy = Math.max(0, Math.min(y+h, r.y+r.h) - Math.max(y, r.y));
+    const a = ox*oy;
+    if(a > bestArea){ bestArea = a; primary = r; }
+  });
+  if(primary){
+    const extLeft = Math.max(0, primary.x - x);
+    const extRight = Math.max(0, (x+w) - (primary.x+primary.w));
+    const extTop = Math.max(0, primary.y - y);
+    const extBottom = Math.max(0, (y+h) - (primary.y+primary.h));
+    const m = Math.max(extLeft, extRight, extTop, extBottom);
+    if(m > 0){
+      wallSide = m===extLeft ? "left" : m===extRight ? "right" : m===extTop ? "top" : "bottom";
+    }
+  }
+  let hx,hy, wallDX=0,wallDY=0, openDX=0,openDY=0;
+  if(wallSide==="left"){ hx=x; hy=y; wallDX=0; wallDY=1; openDX=1; openDY=0; }
+  else if(wallSide==="right"){ hx=x+w; hy=y; wallDX=0; wallDY=1; openDX=-1; openDY=0; }
+  else if(wallSide==="top"){ hx=x; hy=y; wallDX=1; wallDY=0; openDX=0; openDY=1; }
+  else if(wallSide==="bottom"){ hx=x; hy=y+h; wallDX=1; wallDY=0; openDX=0; openDY=-1; }
+  else {
+    // fallback: no clear geometric wall side, use the drawio's own hint
+    const dir = st.direction || "north";
+    const flipH = st.flipH==="1";
+    const flipV = st.flipV==="1";
+    if(dir==="north" || dir==="south"){
+      hy = (dir==="south") ? y : y+h;
+      hx = flipH ? x+w : x;
+      wallDX = (hx===x) ? 1 : -1; wallDY = 0;
+      openDY = (dir==="south") ? 1 : -1; openDX = 0;
+    } else {
+      hx = (dir==="east") ? x : x+w;
+      hy = flipV ? y+h : y;
+      wallDY = (hy===y) ? 1 : -1; wallDX = 0;
+      openDX = (dir==="east") ? 1 : -1; openDY = 0;
+    }
+  }
+  return buildDoorGroup(x,y,w,h,s,hx,hy,wallDX,wallDY,openDX,openDY);
+}
+
+function buildDoorGroup(x,y,w,h,s,hx,hy,wallDX,wallDY,openDX,openDY){
   const wallPt = [hx+wallDX*s, hy+wallDY*s];
   const openPt = [hx+openDX*s, hy+openDY*s];
   const cross = wallDX*openDY - wallDY*openDX;
@@ -624,7 +672,7 @@ function renderDrawioBackdrop(parent){
     const shape = st.shape || "";
     if(shape==="collate") return; // decorative tub ridge — skip, base rect already draws the tub
     if(shape==="mxgraph.floorplan.doorRight"){
-      const d = doorSymbolPath(s.x,s.y,s.w,s.h, st);
+      const d = doorSymbolPath(s.x,s.y,s.w,s.h, st, s.id);
       if(d) g.appendChild(d);
       return;
     }
