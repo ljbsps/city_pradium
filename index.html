@@ -1322,6 +1322,13 @@ function setImgZoom(panelId, scale){
   const media = panelMediaEl(panelId);
   const natW = mediaNaturalWidth(panelId, media);
   if(natW) media.style.width = Math.round(natW*st.scale)+"px";
+  if(panelId==="imgRefPanel"){
+    // <svg> (unlike <img>) doesn't auto-scale height from a CSS width-only
+    // override — it keeps its height attribute as-is, leaving a tall empty
+    // gap above/below the now-narrower content. Scale height to match.
+    const natH = parseFloat(media.getAttribute("height")||"0");
+    if(natH) media.style.height = Math.round(natH*st.scale)+"px";
+  }
   document.getElementById(panelId+"ZoomLabel").textContent = Math.round(st.scale*100)+"%";
 }
 function toggleImgPanel(panelId){
